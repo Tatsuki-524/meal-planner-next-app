@@ -24,15 +24,26 @@ export type Ingredient = {
   updated_at: string;
 };
 
-// 献立
+// 献立の食材（AI提案）
+export type MealItem = {
+  name: string;
+  quantity: number;
+  unit: string;
+};
+
+// 献立の1食分（AI提案）
+export type MealDetail = {
+  name: string;
+  ingredients: MealItem[];
+  steps: string[];
+};
+
+// 献立（AI提案）
 export type MealPlan = {
-  id: number;
-  user_id: number;
-  title: string;
-  meal_date: string;
-  meal_type: number;
-  created_at: string;
-  updated_at: string;
+  breakfast: MealDetail;
+  lunch: MealDetail;
+  dinner: MealDetail;
+  shopping_list: MealItem[];
 };
 
 // 献立の食材
