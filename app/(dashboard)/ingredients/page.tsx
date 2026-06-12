@@ -50,9 +50,18 @@ export default function IngredientsPage() {
     const category = formData.get("category") as string;
     const expiration_date = formData.get("expiration_date") as string;
     setLoading(true);
+    // ログインユーザー情報取得
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    if (!user) {
+      alert("ログインしてください");
+      return;
+    }
 
     const { error } = await supabase.from("ingredients").insert({
-      user_id: 1,
+      user_id: user.id,
       name,
       quantity,
       unit,
