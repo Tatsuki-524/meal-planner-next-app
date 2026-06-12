@@ -4,8 +4,10 @@ import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import type { Ingredient } from "@/app/types";
 import { CATEGORY_LIST } from "@/app/constants/category";
+import { useRouter } from "next/navigation";
 
 export default function IngredientsPage() {
+  const router = useRouter();
   // 食材在庫の状態管理
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   // フォームの送信状態管理
@@ -14,12 +16,16 @@ export default function IngredientsPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   // 編集フォームの状態管理
   const [editForm, setEditForm] = useState<Partial<Ingredient>>({});
+  // ユーザーチェックの状態管理
+  const [checking, setChecking] = useState(true);
+  const [userId, setUserId] = useState<string | null>(null);
 
   // 食材データの取得
-  const fetchIngredients = async () => {
+  const fetchIngredients = async (userId: string) => {
     const { data, error } = await supabase
       .from("ingredients")
       .select("*")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false });
 
     if (error) {
@@ -30,71 +36,25 @@ export default function IngredientsPage() {
     setIngredients(data ?? []);
   };
 
-  // 初回レンダリング時に食材データを取得
+  // 初回認証チェック
   useEffect(() => {
-    fetchIngredients();
-  }, []);
+    const checkUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
-  // フォーム送信時の処理
-  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
-    // ページリロードの防止
-    e.preventDefault();
-    // フォームデータの取得
-    const form = e.currentTarget;
-    // FormData APIを使用してフォームの値を取得
-    const formData = new FormData(e.currentTarget);
-    const name = formData.get("name") as string;
-    const quantity = Number(formData.get("quantity"));
-    const unit_price = Number(formData.get("unit_price"));
-    const unit = formData.get("unit") as string;
-    const category = formData.get("category") as string;
-    const expiration_date = formData.get("expiration_date") as string;
-    setLoading(true);
-    // ログインユーザー情報取得
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
+      if (!user) {
+        router.replace("/login");
+        return;
+      }
 
-    if (!user) {
-      alert("ログインしてください");
-      return;
-    }
+      setUserId(user.id);
+      await fetchIngredients(user.id);
+      setChecking(false);
+    };
 
-    const { error } = await supabase.from("ingredients").insert({
-      user_id: user.id,
-      name,
-      quantity,
-      unit,
-      unit_price,
-      category,
-      expiration_date,
-    });
-
-    setLoading(false);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-    // 送信後にフォームをリセットして、食材データを再取得
-    form.reset();
-    fetchIngredients();
-  }
-
-  // 削除処理
-  async function handleDelete(id: number) {
-    const ok = confirm("本当に削除しますか？");
-    if (!ok) return;
-
-    const { error } = await supabase.from("ingredients").delete().eq("id", id);
-
-    if (error) {
-      alert(error.message);
-      return;
-    }
-
-    fetchIngredients();
-  }
+    checkUser();
+  }, [router]);
 
   // 編集開始
   function handleEdit(item: Ingredient) {
@@ -114,9 +74,73 @@ export default function IngredientsPage() {
     }));
   }
 
+  // フォーム送信時の処理
+  async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
+    // ページリロードの防止
+    e.preventDefault();
+    if (!userId) return;
+
+    // フォームデータの取得
+    const form = e.currentTarget;
+    // FormData APIを使用してフォームの値を取得
+    const formData = new FormData(e.currentTarget);
+    const name = formData.get("name") as string;
+    const quantity = Number(formData.get("quantity"));
+    const unit_price = Number(formData.get("unit_price"));
+    const unit = formData.get("unit") as string;
+    const category = Number(formData.get("category"));
+    const expiration_date = formData.get("expiration_date") as string;
+    setLoading(true);
+
+    try {
+      // 食材データの挿入
+      const { error } = await supabase.from("ingredients").insert({
+        user_id: userId,
+        name,
+        quantity,
+        unit,
+        unit_price,
+        category,
+        expiration_date,
+      });
+
+      if (error) {
+        alert(error.message);
+        return;
+      }
+      // 送信後にフォームをリセットして、食材データを再取得
+      form.reset();
+      await fetchIngredients(userId);
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  // 削除処理
+  async function handleDelete(id: number) {
+    if (!userId) return;
+
+    const ok = confirm("本当に削除しますか？");
+    if (!ok) return;
+
+    const { error } = await supabase
+      .from("ingredients")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", userId);
+
+    if (error) {
+      alert(error.message);
+      return;
+    }
+
+    await fetchIngredients(userId);
+  }
+
   // 更新
   async function handleUpdate() {
     if (!editingId) return;
+    if (!userId) return;
 
     const { error } = await supabase
       .from("ingredients")
@@ -128,7 +152,8 @@ export default function IngredientsPage() {
         category: editForm.category,
         expiration_date: editForm.expiration_date,
       })
-      .eq("id", editingId);
+      .eq("id", editingId)
+      .eq("user_id", userId);
 
     if (error) {
       alert(error.message);
@@ -137,7 +162,15 @@ export default function IngredientsPage() {
 
     setEditingId(null);
     setEditForm({});
-    fetchIngredients();
+    await fetchIngredients(userId);
+  }
+
+  if (checking) {
+    return (
+      <main className="flex h-screen items-center justify-center">
+        <p>読み込み中...</p>
+      </main>
+    );
   }
 
   return (
@@ -233,7 +266,7 @@ export default function IngredientsPage() {
                         <input
                           name="quantity"
                           type="number"
-                          value={editForm.quantity ?? 0}
+                          value={editForm.quantity ?? ""}
                           onChange={handleChange}
                           className="border p-1 w-20"
                         />
